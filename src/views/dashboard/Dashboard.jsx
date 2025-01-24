@@ -250,7 +250,7 @@ const Dashboard = () => {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await fetch('http://localhost:5000/api/category/with-products');
+        const response = await fetch('https://barback.mixmall.uz/api/category/with-products');
         const result = await response.json();
         if (result.success) {
           setCategories(result.data);
@@ -277,7 +277,7 @@ const Dashboard = () => {
   const loadDraftOrders = async () => {
     try {
       // Barcha draft orderlarni olish
-      const allDraftsResponse = await axios.get('http://localhost:5000/api/draft-order/drafts', {
+      const allDraftsResponse = await axios.get('https://barback.mixmall.uz/api/draft-order/drafts', {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
@@ -302,7 +302,7 @@ const Dashboard = () => {
   // Draft orderni yaratish
   const createDraftOrder = async () => {
     try {
-      const response = await axios.post('http://localhost:5000/api/draft-order/draft', {
+      const response = await axios.post('https://barback.mixmall.uz/api/draft-order/draft', {
         computerId: computerNumber || null,
         products: selectedProducts,
         totalSum: totalSum
@@ -325,7 +325,7 @@ const Dashboard = () => {
   // Draft orderni yangilash
   const updateDraftOrder = async (orderId) => {
     try {
-      const response = await axios.put(`http://localhost:5000/api/draft-order/draft/${orderId}`, {
+      const response = await axios.put(`https://barback.mixmall.uz/api/draft-order/draft/${orderId}`, {
         products: selectedProducts,
         totalSum: totalSum
       }, {
@@ -348,7 +348,7 @@ const Dashboard = () => {
   // Draft orderni o'chirish
   const deleteDraftOrder = async (orderId) => {
     try {
-      const response = await axios.delete(`http://localhost:5000/api/draft-order/draft/${orderId}`, {
+      const response = await axios.delete(`https://barback.mixmall.uz/api/draft-order/draft/${orderId}`, {
         headers: {
           Authorization: `Bearer ${localStorage.getItem('token')}`
         }
@@ -373,7 +373,7 @@ const Dashboard = () => {
         return;
       }
 
-      const response = await fetch(`http://localhost:5000/api/draft-order/draft/${orderId}/confirm`, {
+      const response = await fetch(`https://barback.mixmall.uz/api/draft-order/draft/${orderId}/confirm`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -423,7 +423,7 @@ const Dashboard = () => {
       }
 
       // Buyurtmani to'g'ridan-to'g'ri tasdiqlash
-      const response = await fetch('http://localhost:5000/api/draft-order/confirm-direct', {
+      const response = await fetch('https://barback.mixmall.uz/api/draft-order/confirm-direct', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -616,7 +616,7 @@ const Dashboard = () => {
       };
 
       const response = await axios.post(
-        'http://localhost:5000/api/order-history/direct-order',
+        'https://barback.mixmall.uz/api/order-history/direct-order',
         requestData,
         {
           headers: {
@@ -668,10 +668,10 @@ const Dashboard = () => {
         </div>
       </header>
 
-      {/* Banner Slider */}
+      {/* Banner Slider
       <div className="max-w-7xl mx-auto w-full">
         <BannerSlider />
-      </div>
+      </div> */}
 
       {/* Main Content */}
       <main className="flex-1 p-6">

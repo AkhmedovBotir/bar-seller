@@ -1,7 +1,7 @@
 import { createSlice } from '@reduxjs/toolkit';
 import { socketService } from '../services/socket';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'https://barback.mixmall.uz';
 
 const initialState = {
   isAuthenticated: !!localStorage.getItem('token'),

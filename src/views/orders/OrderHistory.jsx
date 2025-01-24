@@ -25,7 +25,7 @@ const OrderHistory = () => {
       startDate.setMonth(startDate.getMonth() - 1); // Oxirgi 1 oylik buyurtmalar
       
       const response = await fetch(
-        `http://localhost:5000/api/order-history?page=${pagination.page}&limit=20&startDate=${startDate.toISOString().split('T')[0]}`,
+        `https://barback.mixmall.uz/api/order-history?page=${pagination.page}&limit=20&startDate=${startDate.toISOString().split('T')[0]}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`
@@ -53,7 +53,7 @@ const OrderHistory = () => {
   const fetchOrderDetails = async (orderId) => {
     try {
       const response = await fetch(
-        `http://localhost:5000/api/order-history/${orderId}`,
+        `https://barback.mixmall.uz/api/order-history/${orderId}`,
         {
           headers: {
             'Authorization': `Bearer ${token}`
