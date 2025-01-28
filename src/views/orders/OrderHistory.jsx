@@ -11,6 +11,9 @@ const OrderHistory = () => {
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printData, setPrintData] = useState(null);
+  const [pdfBlob, setPdfBlob] = useState(null);
   const [pagination, setPagination] = useState({
     total: 0,
     page: 1,
@@ -21,20 +24,44 @@ const OrderHistory = () => {
 
   const fetchOrders = async () => {
     try {
+      // Bugungi sana uchun endDate
+      const endDate = new Date();
+      endDate.setHours(23, 59, 59, 999);
+      
+      // 1 oy oldingi sana uchun startDate
       const startDate = new Date();
-      startDate.setMonth(startDate.getMonth() - 1); // Oxirgi 1 oylik buyurtmalar
+      startDate.setMonth(startDate.getMonth() - 1);
+      startDate.setHours(0, 0, 0, 0);
+      
+      // Sanalarni format qilish
+      const formatDate = (date) => {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        return `${year}-${month}-${day}`;
+      };
+
+      const params = new URLSearchParams({
+        page: pagination.page,
+        limit: 20,
+        startDate: formatDate(startDate),
+        endDate: formatDate(endDate)
+      });
       
       const response = await fetch(
-        `https://barback.mixmall.uz/api/order-history?page=${pagination.page}&limit=20&startDate=${startDate.toISOString().split('T')[0]}`,
+        `https://barback.mixmall.uz/api/order-history?${params}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         }
       );
 
       const data = await response.json();
       console.log('Orders data:', data); // Debug
+      console.log('Start Date:', formatDate(startDate)); // Debug sanani
+      console.log('End Date:', formatDate(endDate)); // Debug sanani
 
       if (data.success) {
         setOrders(data.data.orders);
@@ -56,7 +83,8 @@ const OrderHistory = () => {
         `https://barback.mixmall.uz/api/order-history/${orderId}`,
         {
           headers: {
-            'Authorization': `Bearer ${token}`
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json'
           }
         }
       );
@@ -74,16 +102,18 @@ const OrderHistory = () => {
     }
   };
 
-  useEffect(() => {
-    fetchOrders();
-  }, [pagination.page]);
-
-  const handlePrint = (order) => {
+  const generatePDF = (order) => {
     try {
+      // Sahifa balandligini hisoblash
+      const headerHeight = 50; // Sarlavha, sana va kompyuter raqami uchun
+      const productsHeight = (order?.products?.length || 0) * 5; // Har bir mahsulot uchun 5mm
+      const footerHeight = 60; // Jami summa, status va footer uchun
+      const totalHeight = headerHeight + productsHeight + footerHeight;
+
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: [80, 150],
+        format: [80, Math.max(totalHeight, 150)], // Minimal 150mm yoki kontent + marginlar
         putOnlyUsedFonts: true,
         floatPrecision: 16
       });
@@ -96,46 +126,50 @@ const OrderHistory = () => {
       doc.setFontSize(14);
       doc.setFont('Roboto', 'bold');
 
+      // Tepa qismiga chiziq
+      doc.line(5, 5, 75, 5);   
       // Sarlavha
-      doc.text('WINSTRIKE', 40, 10, { align: 'center' });
+      doc.text('WINSTRIKE', 40, 15, { align: 'center' });
+      doc.line(5, 5, 75, 5);
       
       doc.setFontSize(10);
       doc.setFont('Roboto', 'normal');
       
       // Chek ma'lumotlari
-      const date = new Date(order.createdAt).toLocaleString('ru-RU', {
+      const date = new Date(order.createdAt).toLocaleString('uz-UZ', {
         year: 'numeric',
-        month: 'long',
+        month: 'numeric',
         day: 'numeric',
         hour: '2-digit',
         minute: '2-digit'
       });
 
-      doc.text(`Чек №${order.orderId || 'N/A'}`, 5, 20);
-      doc.text(`Дата: ${date}`, 5, 25);
-      doc.text(`Компьютер: ${order.table || 'N/A'}`, 5, 30);
+      doc.text(`Chek №${order.orderId || 'N/A'}`, 5, 20);
+      doc.text(`Sana: ${date}`, 5, 25);
+      doc.text(`Kompyuter: ${order.computerId || 'N/A'}`, 5, 30);
+      doc.text(`Sotuvchi: ${user?.name || 'N/A'}`, 5, 35);
 
       // Chiziq
       doc.line(5, 40, 75, 40);
 
       // Mahsulotlar ro'yxati sarlavhasi
       doc.setFont('Roboto', 'bold');
-      doc.text('Наименование', 5, 45);
-      doc.text('Кол-во', 45, 45);
-      doc.text('Сумма', 60, 45);
+      doc.text('Nomi', 5, 45);
+      doc.text('Soni', 45, 45);
+      doc.text('Summa', 60, 45);
       doc.setFont('Roboto', 'normal');
 
       // Mahsulotlar ro'yxati
       let y = 52;
       
-      if (Array.isArray(order.products)) {
+      if (Array.isArray(order?.products)) {
         order.products.forEach((item) => {
           // Mahsulot nomi
-          const name = item.name;
-          const quantity = item.quantity;
-          const price = item.price;
+          const name = item?.name || 'Nomsiz mahsulot';
+          const quantity = item?.quantity || 0;
+          const price = item?.price || 0;
           const total = quantity * price;
-          const unit = item.unitSize ? ` ${item.unitSize}${item.unit}` : '';
+          const unit = item?.unit ? ` (${item.unit})` : '';
 
           // Mahsulot nomi va o'lchov birligi
           doc.text(`${name}${unit}`, 5, y);
@@ -153,30 +187,75 @@ const OrderHistory = () => {
 
       // Jami summa
       doc.setFont('Roboto', 'bold');
-      doc.text('ИТОГО:', 5, y + 7);
-      doc.text(`${order.totalSum.toLocaleString()} сум`, 45, y + 7);
+      doc.text('Jami:', 5, y + 7);
+      doc.text(`${order.totalSum.toLocaleString()} so'm`, 45, y + 7);
 
       // Status
-      const statusText = order.status === 'completed' ? 'ОПЛАЧЕНО' : order.status.toUpperCase();
+      const statusText = order.status === 'completed' ? 'TO\'LANGAN' : order.status.toUpperCase();
       doc.setFont('Roboto', 'bold');
-      doc.text(statusText, 40, y + 12, { align: 'center' });
+      doc.text(statusText, 40, y + 17, { align: 'center' });
 
       // Footer
-      y += 20;
+      y += 25;
       doc.setFontSize(8);
       doc.setFont('Roboto', 'normal');
-      doc.text('Спасибо за покупку!', 40, y, { align: 'center' });
+      doc.text('Xaridingiz uchun rahmat!', 40, y, { align: 'center' });
       doc.text('WINSTRIKE', 40, y + 3, { align: 'center' });
-
-      // Chekni saqlash
-      doc.save(`check-${order.orderId || order._id}.pdf`);
       
-      setSelectedOrder(null);
+      doc.text('', 40, y + 20, { align: 'center' });
+      // Pastki chiziq
+      doc.text('--------------------', 40, y + 25, { align: 'center' });
+      
+      // Pastdan joy qo'shish
+      doc.text('', 40, y + 15, { align: 'center' });
+
+      return doc;
     } catch (error) {
       console.error('Error generating PDF:', error);
       toast.error('Чек яратишда хатолик юз берди');
+      return null;
     }
   };
+
+  const handlePrint = (order) => {
+    const doc = generatePDF(order);
+    if (doc) {
+      // PDF blob yaratish
+      const blob = new Blob([doc.output('blob')], { type: 'application/pdf' });
+      setPdfBlob(blob);
+      
+      // PDF ni base64 formatda olish
+      const pdfData = doc.output('datauristring');
+      setPrintData(pdfData);
+      setPrintModalOpen(true);
+      setSelectedOrder(order);
+    }
+  };
+
+  const downloadPDF = () => {
+    if (pdfBlob && selectedOrder) {
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `check-${selectedOrder.orderId || selectedOrder._id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  };
+
+  const executePrint = () => {
+    if (window.print) {
+      window.print();
+    } else {
+      toast.error('Brauzeringiz print funksiyasini qo\'llab-quvvatlamaydi');
+    }
+  };
+
+  useEffect(() => {
+    fetchOrders();
+  }, [pagination.page]);
 
   const handlePageChange = (newPage) => {
     if (newPage >= 1 && newPage <= pagination.pages) {
@@ -265,33 +344,38 @@ const OrderHistory = () => {
               <div className="col-span-full text-center py-8 text-gray-500">
                 Юкланмоқда...
               </div>
-            ) : orders.length === 0 ? (
+            ) : Array.isArray(orders) && orders.length === 0 ? (
               <div className="col-span-full text-center py-8 text-gray-500">
                 Буюртмалар тарихи бўш
               </div>
             ) : (
-              orders.map((order) => (
-                <div key={order._id} className="bg-white rounded-xl shadow-sm p-4">
+              Array.isArray(orders) && orders.map((order) => (
+                <div key={order?._id || Math.random()} className="bg-white rounded-xl shadow-sm p-4">
                   <div className="flex justify-between items-center mb-4">
-                    <h3 className="font-medium text-gray-900">Заказ №{order.orderId || 'N/A'}</h3>
+                    <h3 className="font-medium text-gray-900">Заказ №{order?.orderId || 'N/A'}</h3>
                     <span className="text-sm text-gray-500">
-                      {new Date(order.createdAt).toLocaleString('ru-RU', {
+                      {order?.createdAt ? new Date(order.createdAt).toLocaleString('ru-RU', {
                         day: 'numeric',
                         month: 'long',
                         hour: '2-digit',
                         minute: '2-digit'
-                      })}
+                      }) : 'Sana mavjud emas'}
                     </span>
                   </div>
                   
                   <div className="space-y-2">
-                    {order.products.slice(0, 3).map((item, index) => (
-                      <div key={index} className="flex justify-between">
-                        <span className="text-gray-800">{item.productId.name}</span>
-                        <span className="text-gray-600">{item.quantity} шт.</span>
-                      </div>
-                    ))}
-                    {order.products.length > 3 && (
+                    {Array.isArray(order?.products) && order.products.slice(0, 3).map((item, index) => {
+                      const productName = item?.productId?.name || item?.name || 'Nomsiz mahsulot';
+                      const quantity = item?.quantity || 0;
+                      
+                      return (
+                        <div key={index} className="flex justify-between">
+                          <span className="text-gray-800">{productName}</span>
+                          <span className="text-gray-600">{quantity} шт.</span>
+                        </div>
+                      );
+                    })}
+                    {Array.isArray(order?.products) && order.products.length > 3 && (
                       <div className="text-gray-500 text-sm text-center">
                         И еще {order.products.length - 3} товаров
                       </div>
@@ -315,7 +399,7 @@ const OrderHistory = () => {
           </div>
 
           {/* Pagination */}
-          {!loading && orders.length > 0 && (
+          {!loading && Array.isArray(orders) && orders.length > 0 && (
             <Pagination 
               pagination={pagination} 
               onPageChange={handlePageChange}
@@ -339,17 +423,22 @@ const OrderHistory = () => {
                 </div>
 
                 <div className="space-y-3">
-                  {selectedOrder.products.map((item, index) => (
-                    <div key={index} className="flex justify-between items-center">
-                      <span className="text-gray-800">{item.productId.name}</span>
-                      <span className="text-gray-600">{item.quantity} шт.</span>
-                    </div>
-                  ))}
+                  {Array.isArray(selectedOrder?.products) && selectedOrder.products.map((item, index) => {
+                    const productName = item?.productId?.name || item?.name || 'Nomsiz mahsulot';
+                    const quantity = item?.quantity || 0;
+                    
+                    return (
+                      <div key={index} className="flex justify-between items-center">
+                        <span className="text-gray-800">{productName}</span>
+                        <span className="text-gray-600">{quantity} шт.</span>
+                      </div>
+                    );
+                  })}
                 </div>
 
-                <div className="flex justify-between items-center mt-6 pt-4 border-t">
-                  <span className="text-xl font-medium text-gray-900">Итого</span>
-                  <span className="text-xl font-medium text-[#0095FF]">{selectedOrder.totalSum.toLocaleString()} Сум</span>
+                <div className="mt-4 flex justify-between items-center text-lg font-medium">
+                  <span>Умумий сумма:</span>
+                  <span>{selectedOrder?.totalSum?.toLocaleString() || 0} сўм</span>
                 </div>
 
                 <div className="flex gap-3 mt-6">
@@ -371,14 +460,57 @@ const OrderHistory = () => {
           </div>
         )}
 
+        {/* Print Modal */}
+        {printModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 print:hidden">
+            <div className="bg-white rounded-lg p-6 max-w-lg w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-xl font-bold">Chek chiqarish</h2>
+                <button
+                  onClick={() => {
+                    setPrintModalOpen(false);
+                    setPrintData(null);
+                    setPdfBlob(null);
+                  }}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+              
+              <div className="mb-4 h-[500px] overflow-auto bg-gray-50 rounded">
+                <iframe 
+                  src={printData} 
+                  className="w-full h-full border-0"
+                  title="Check preview"
+                />
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button
+                  onClick={downloadPDF}
+                  className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 flex items-center gap-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Yuklab olish
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Fixed Bottom Button */}
         <div className="sticky bottom-0 left-0 right-0 flex flex-col items-center mt-5">
           <button
             onClick={() => navigate('/')}
             className="px-8 py-3 -mb-6 bg-[#D32F2F] text-white rounded-xl text-lg font-medium shadow-lg hover:bg-[#C62828] transition-colors z-10 min-w-[200px] flex items-center gap-2"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-              <path fillRule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L4.414 9H17a1 1 0 110 2H4.414l5.293 5.293a1 1 0 010 1.414z" clipRule="evenodd" />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
             НАЗАД
           </button>

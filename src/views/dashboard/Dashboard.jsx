@@ -32,6 +32,9 @@ const Dashboard = () => {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [uniqueSizes, setUniqueSizes] = useState([]);
   const [selectedSize, setSelectedSize] = useState(null);
+  const [pdfBlob, setPdfBlob] = useState(null);
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printData, setPrintData] = useState(null);
 
   const handleRemoveProduct = (index) => {
     const newProducts = selectedProducts.filter((_, i) => i !== index);
@@ -59,6 +62,7 @@ const Dashboard = () => {
     setSelectedProducts([]);
     setTotalSum(0);
     setIsViewMode(false);
+    setComputerNumber('');
   };
 
   const handleAddOrder = () => {
@@ -325,23 +329,76 @@ const Dashboard = () => {
   // Draft orderni yangilash
   const updateDraftOrder = async (orderId) => {
     try {
+      if (!selectedProducts.length) {
+        toast.error("Mahsulotlar ro'yxati bo'sh");
+        return;
+      }
+
       const response = await axios.put(`https://barback.mixmall.uz/api/draft-order/draft/${orderId}`, {
-        products: selectedProducts,
-        totalSum: totalSum
+        products: selectedProducts.map(product => ({
+          productId: product.productId,
+          name: product.name,
+          quantity: product.quantity,
+          price: product.price,
+          unit: product.unit || "dona",
+          unitSize: product.unitSize || 1
+        })),
+        totalSum: totalSum,
+        ...(computerNumber && { 
+          computerId: computerNumber,
+          table: computerNumber 
+        }),
+        timestamp: new Date().toISOString()
       }, {
         headers: {
-          Authorization: `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
         }
       });
 
       if (response.data.success) {
-        console.log('Updated draft order:', response.data);
+        const updatedOrder = response.data.data;
+        console.log('Updated draft order:', updatedOrder);
+        
+        // State ni yangilash
+        setSelectedOrder({
+          ...updatedOrder,
+          products: updatedOrder.products,
+          seller: updatedOrder.seller,
+          computerId: updatedOrder.computerId
+        });
+        
         loadDraftOrders();
         handleClose();
+        toast.success("Draft buyurtma yangilandi");
       }
     } catch (error) {
       console.error('Error updating draft order:', error);
-      alert('Произошла ошибка при обновлении заказа');
+      
+      // Xatolik turini aniqlash
+      if (error.response) {
+        switch (error.response.status) {
+          case 400:
+            toast.error("Mahsulotlar ro'yxati bo'sh");
+            break;
+          case 401:
+            toast.error("Avtorizatsiya xatosi");
+            break;
+          case 403:
+            toast.error("Ushbu draft buyurtmani yangilash huquqi yo'q");
+            break;
+          case 404:
+            toast.error("Draft buyurtma topilmadi");
+            break;
+          case 500:
+            toast.error("Serverda xatolik yuz berdi");
+            break;
+          default:
+            toast.error(error.response.data?.message || "Draft buyurtmani yangilashda xatolik");
+        }
+      } else {
+        toast.error("Draft buyurtmani yangilashda xatolik");
+      }
     }
   };
 
@@ -474,95 +531,161 @@ const Dashboard = () => {
     }
   };
 
-  // PDF generatsiya qilish qismi
-  const handlePdfGeneration = () => {
-    const doc = new jsPDF({
-      putOnlyUsedFonts: true,
-      floatPrecision: 16,
-      format: [80, 150]
-    });
+  // PDF generatsiya qilish
+  const generatePDF = (order) => {
+    try {
+      // Sahifa balandligini hisoblash
+      const headerHeight = 50; // Sarlavha, sana va kompyuter raqami uchun
+      const productsHeight = (order?.products?.length || 0) * 5; // Har bir mahsulot uchun 5mm
+      const footerHeight = 60; // Jami summa, status va footer uchun
+      const totalHeight = headerHeight + productsHeight + footerHeight;
 
-    // Add fonts
-    doc.addFont('https://fonts.gstatic.com/s/roboto/v30/KFOmCnqEu92Fr1Me5Q.ttf', 'Roboto', 'normal');
-    doc.addFont('https://fonts.gstatic.com/s/roboto/v30/KFOlCnqEu92Fr1MmWUlvAw.ttf', 'Roboto', 'bold');
-
-    // Set font
-    doc.setFont('Roboto', 'bold');
-    doc.setFontSize(16);
-    doc.text('WINSTRIKE', 40, 10, { align: 'center' });
-
-    // Order details
-    const date = new Date(selectedOrder?.createdAt || new Date()).toLocaleString('ru-RU', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-
-    doc.setFont('Roboto', 'normal');
-    doc.setFontSize(10);
-    doc.text(`Чек №${selectedOrder?.orderId || 'N/A'}`, 5, 20);
-    doc.text(`Дата: ${date}`, 5, 25);
-    doc.text(`Компьютер: ${selectedOrder?.table || 'N/A'}`, 5, 30);
-
-    // Line
-    doc.line(5, 35, 75, 35);
-
-    // Column headers
-    doc.setFont('Roboto', 'bold');
-    doc.text('Название', 5, 40);
-    doc.text('Кол-во', 45, 40);
-    doc.text('Сумма', 60, 40);
-
-    // Line
-    doc.line(5, 42, 75, 42);
-
-    // Products list
-    doc.setFont('Roboto', 'normal');
-    let y = 47;
-    
-    if (selectedOrder?.products) {
-      selectedOrder.products.forEach((product) => {
-        if (y > 120) {
-          doc.addPage();
-          y = 20;
-        }
-        const price = product.price * product.quantity;
-        doc.text(product.name.substring(0, 20), 5, y);
-        doc.text(product.quantity.toString(), 45, y);
-        doc.text(price.toLocaleString(), 60, y);
-        y += 5;
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: [80, Math.max(totalHeight, 150)], // Minimal 150mm yoki kontent + marginlar
+        putOnlyUsedFonts: true,
+        floatPrecision: 16
       });
+
+      // Font o'lchami va stil
+      doc.setFontSize(14);
+      doc.setFont('helvetica', 'bold');
+
+      // Tepa qismiga chiziq
+      doc.line(5, 5, 75, 5);   
+      // Sarlavha
+      doc.text('WINSTRIKE', 40, 15, { align: 'center' });
+      doc.line(5, 5, 75, 5);
+      
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      // Chek ma'lumotlari
+      const now = new Date();
+      const orderDate = order.createdAt ? new Date(order.createdAt) : now;
+      
+      const date = orderDate.toLocaleString('uz-UZ', {
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).replace(',', '');
+
+      doc.text(`Chek №${order.orderId || 'N/A'}`, 5, 20);
+      doc.text(`Sana: ${date}`, 5, 25);
+      doc.text(`Kompyuter: ${order.computerId || 'N/A'}`, 5, 30);
+      doc.text(`Sotuvchi: ${user?.name || 'N/A'}`, 5, 35);
+
+      // Chiziq
+      doc.line(5, 40, 75, 40);
+
+      // Mahsulotlar ro'yxati sarlavhasi
+      doc.setFont('helvetica', 'bold');
+      doc.text('Nomi', 5, 45);
+      doc.text('Soni', 45, 45);
+      doc.text('Summa', 60, 45);
+      doc.setFont('helvetica', 'normal');
+
+      // Mahsulotlar ro'yxati
+      let y = 52;
+      
+      if (Array.isArray(order?.products)) {
+        order.products.forEach((item) => {
+          // Mahsulot nomi
+          const name = item?.name || 'Nomsiz mahsulot';
+          const quantity = item?.quantity || 0;
+          const price = item?.price || 0;
+          const total = quantity * price;
+          const unit = item?.unit ? ` (${item.unit})` : '';
+
+          // Mahsulot nomi va o'lchov birligi
+          doc.text(`${name}${unit}`, 5, y);
+          // Miqdori
+          doc.text(`${quantity}`, 47, y);
+          // Narxi
+          doc.text(`${total.toLocaleString()}`, 60, y);
+          
+          y += 5;
+        });
+      }
+
+      // Chiziq
+      doc.line(5, y + 2, 75, y + 2);
+
+      // Jami summa
+      doc.setFont('helvetica', 'bold');
+      doc.text('Jami:', 5, y + 7);
+      doc.text(`${order.totalSum.toLocaleString()} so'm`, 45, y + 7);
+
+      // Status
+      if (order.status) {
+        const statusText = order.status.toUpperCase() === 'DRAFT' ? 'TO\'LANGAN' : order.status.toUpperCase();
+        doc.setFont('helvetica', 'bold');
+        doc.text(statusText, 40, y + 17, { align: 'center' });
+      }
+
+      // Footer
+      y += 25;
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Xaridingiz uchun rahmat!', 40, y, { align: 'center' });
+      doc.text('WINSTRIKE', 40, y + 3, { align: 'center' });
+      
+      doc.text('', 40, y + 20, { align: 'center' });
+      // Pastdan joy qo'shish
+      doc.text('', 40, y + 15, { align: 'center' });
+
+      return doc;
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      toast.error('Чек яратишда хатолик юз берди');
+      return null;
     }
+  };
 
-    // Line
-    doc.line(5, y + 2, 75, y + 2);
+  const handlePrint = (order) => {
+    const doc = generatePDF(order);
+    if (doc) {
+      // PDF blob yaratish
+      const blob = new Blob([doc.output('blob')], { type: 'application/pdf' });
+      setPdfBlob(blob);
+      
+      // PDF ni base64 formatda olish
+      const pdfData = doc.output('datauristring');
+      setPrintData(pdfData);
+      setPrintModalOpen(true);
+      setSelectedOrder(order);
+    }
+  };
 
-    // Total
-    doc.setFont('Roboto', 'bold');
-    doc.text('ИТОГО:', 5, y + 7);
-    doc.text(`${selectedOrder?.totalSum?.toLocaleString() || '0'} сум`, 45, y + 7);
+  const downloadPDF = () => {
+    if (pdfBlob && selectedOrder) {
+      const url = URL.createObjectURL(pdfBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `check-${selectedOrder.orderId || selectedOrder._id}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    }
+  };
 
-    // Status
-    doc.setFont('Roboto', 'bold');
-    doc.text('ОПЛАЧЕНО', 40, y + 12, { align: 'center' });
+  // Chop etish
+  const executePrint = () => {
+    if (window.print) {
+      window.print();
+    } else {
+      toast.error('Brauzeringiz print funksiyasini qo\'llab-quvvatlamaydi');
+    }
+  };
 
-    // Footer
-    doc.setFont('Roboto', 'normal');
-    doc.setFontSize(8);
-    doc.text('Спасибо за покупку!', 40, y + 17, { align: 'center' });
-    doc.text('WINSTRIKE', 40, y + 22, { align: 'center' });
-
-    // Save PDF
-    doc.save(`check-${selectedOrder?.orderId || Date.now()}.pdf`);
-
-    // Close modals and reset state
+  const handlePdfGeneration = () => {
+    handlePrint(selectedOrder);
     setShowSuccessModal(false);
-    setIsModalOpen(false);
-    setSelectedProducts([]);
-    setTotalSum(0);
-    setComputerNumber('');
   };
 
   // Sahifa yuklanganda 
@@ -603,16 +726,20 @@ const Dashboard = () => {
     try {
       const token = localStorage.getItem('token');
       const requestData = {
-        table: computerNumber?.trim() || "1",
+        computerId: computerNumber?.trim() || "DEFAULT",
         products: selectedProducts.map(product => ({
           productId: product.productId,
+          name: product.name,
           quantity: product.quantity,
           price: product.price,
-          name: product.name,
           unit: product.unit || "dona",
           unitSize: product.unitSize || 1
         })),
-        totalSum: totalSum
+        totalSum,
+        createdAt: new Date().toISOString(),
+        timestamp: new Date().toISOString(),
+        table: computerNumber,
+        status: 'TO\'LANGAN'
       };
 
       const response = await axios.post(
@@ -631,8 +758,10 @@ const Dashboard = () => {
           orderId: response.data.data.orderId,
           products: response.data.data.products,
           totalSum: response.data.data.totalSum,
-          table: computerNumber?.trim() || "1",
-          createdAt: response.data.data.createdAt
+          computerId: response.data.data.computerId,
+          createdAt: response.data.data.createdAt || new Date().toISOString(),
+          seller: response.data.data.seller,
+          status: response.data.data.status || 'completed'
         });
         setShowSuccessModal(true);
         handleClose();
@@ -766,7 +895,9 @@ const Dashboard = () => {
             </div>
 
             <button
-              onClick={handlePdfGeneration}
+              onClick={() => {
+                handlePrint(selectedOrder);
+              }}
               className="w-full bg-[#37383D] text-white py-3 rounded-xl text-lg font-medium hover:bg-[#2d2e31] transition-colors"
             >
               НАПЕЧАТАТЬ ЧЕК
@@ -775,11 +906,57 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Chek chiqarish modali */}
+      {printModalOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={() => {
+            setPrintModalOpen(false);
+            setShowSuccessModal(false);
+          }} />
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] sm:w-[80%] md:w-[60%] lg:w-[50%] max-w-lg mx-auto bg-white rounded-2xl p-4 sm:p-6">
+            <div className="flex justify-between items-center mb-4 sm:mb-6">
+              <h3 className="text-lg sm:text-xl font-medium text-gray-900">Chek №{selectedOrder?.orderId || 'N/A'}</h3>
+              <button onClick={() => {
+                setPrintModalOpen(false);
+                setShowSuccessModal(false);
+              }} className="text-gray-400 hover:text-gray-500">
+                <svg className="h-5 w-5 sm:h-6 sm:w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* PDF ko'rish */}
+            <div className="mb-4 sm:mb-6 overflow-hidden rounded-xl" style={{ height: '350px' }}>
+              <iframe
+                src={printData}
+                style={{ width: '100%', height: '100%', border: 'none' }}
+                title="Chek"
+              />
+            </div>
+
+            {/* Tugmalar */}
+            <div className="flex justify-center">
+              <button
+                onClick={() => {
+                  downloadPDF();
+                  setPrintModalOpen(false);
+                  setShowSuccessModal(false);
+                }}
+                className="px-6 sm:px-8 py-2.5 sm:py-3 text-sm sm:text-base text-white bg-blue-500 rounded-xl hover:bg-blue-600 transition-colors"
+              >
+                Yuklab olish
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 z-50">
+        <div className="fixed inset-0 z-[60] min-h-[500px] sm:min-h-[300px] md:min-h-[300px]">
           <div className="absolute inset-0 bg-black/30 backdrop-blur-sm" onClick={handleClose} />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-full max-w-3xl">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[95%] sm:w-[85%] md:w-[75%] lg:w-[70%] max-w-3xl">
             <button 
               onClick={handleClose}
               className="absolute -top-15 -right-12 text-white hover:text-gray-200 transition-colors"
@@ -789,7 +966,7 @@ const Dashboard = () => {
               </svg>
             </button>
 
-            <div className="bg-white rounded-2xl shadow-xl flex flex-col min-h-[800px]">
+            <div className="bg-white rounded-2xl shadow-xl flex flex-col min-h-[600px] sm:min-h-[600px] md:min-h-[600px]">
               {/* Modal sarlavhasi */}
               {isViewMode && (
                 <div className="border-b border-gray-100 p-6">
@@ -913,7 +1090,7 @@ const Dashboard = () => {
                     }}
                     className="px-4 py-2 bg-[#4CAF50] text-white rounded-xl text-base font-medium hover:bg-[#43A047] transition-colors min-w-[140px] flex items-center justify-center gap-2"
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="none" stroke="currentColor">
+                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
                     </svg>
                     ДОБАВИТЬ ПРОДУКТ
@@ -1027,7 +1204,7 @@ const Dashboard = () => {
                 <div className="flex gap-3 mt-6">
                   <button
                     onClick={() => setShowOrderModal(false)}
-                    className="flex-1 py-3 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors text-sm font-normal"
+                    className="flex-1 py-3 text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200 transition-colors"
                   >
                     ЗАКРЫТЬ
                   </button>
