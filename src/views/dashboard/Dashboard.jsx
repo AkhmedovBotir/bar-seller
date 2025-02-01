@@ -1317,14 +1317,14 @@ const Dashboard = () => {
                     {/* Categories */}
                     <div className="flex-1 p-4 border-r">
                       <h3 className="text-lg text-[#0095FF] font-medium mb-4">Категории</h3>
-                      <div className="space-y-2">
+                      <div className="space-y-2 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
                         {categories.map((category) => (
                           <button
                             key={category._id}
                             onClick={() => setSelectedCategory(category._id)}
-                            className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
+                            className={`w-full text-left px-4 py-2.5 rounded-lg transition-colors ${
                               selectedCategory === category._id
-                                ? 'bg-[#0095FF] text-gray-900'
+                                ? 'bg-[#0095FF] text-white'
                                 : 'hover:bg-gray-100 text-gray-900'
                             }`}
                           >
@@ -1337,7 +1337,7 @@ const Dashboard = () => {
                     {/* Subcategories */}
                     <div className="flex-1 p-4 border-r">
                       <h3 className="text-lg text-[#0095FF] font-medium mb-4">Подкатегории</h3>
-                      <div className="space-y-2">
+                      <div className="space-y-2 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
                         {selectedCategory ? (
                           categories
                             .find(cat => cat._id === selectedCategory)
@@ -1345,9 +1345,9 @@ const Dashboard = () => {
                               <button
                                 key={subcategory._id}
                                 onClick={() => setSelectedSubcategory(subcategory._id)}
-                                className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
+                                className={`w-full text-left px-4 py-2.5 rounded-lg transition-colors ${
                                   selectedSubcategory === subcategory._id
-                                    ? 'bg-[#0095FF] text-gray-900'
+                                    ? 'bg-[#0095FF] text-white'
                                     : 'hover:bg-gray-100 text-gray-900'
                                 }`}
                               >
@@ -1363,14 +1363,14 @@ const Dashboard = () => {
                     {/* Product Names */}
                     <div className="flex-1 p-4 border-r">
                       <h3 className="text-lg text-[#0095FF] font-medium mb-4">Продукты</h3>
-                      <div className="space-y-2">
+                      <div className="space-y-2 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
                         {selectedSubcategory ? groupedProducts.map(({ name }) => (
                           <button
                             key={name}
                             onClick={() => handleProductNameSelect(name)}
-                            className={`w-full text-left px-4 py-2 rounded-lg transition-colors ${
+                            className={`w-full text-left px-4 py-2.5 rounded-lg transition-colors ${
                               selectedProductName === name 
-                                ? 'bg-[#0095FF] text-gray-900' 
+                                ? 'bg-[#0095FF] text-white'
                                 : 'hover:bg-gray-100 text-gray-900'
                             }`}
                           >
@@ -1383,12 +1383,12 @@ const Dashboard = () => {
                     {/* Product Sizes */}
                     <div className="flex-1 p-4">
                       <h3 className="text-lg text-[#0095FF] font-medium mb-4">Объем</h3>
-                      <div className="space-y-2">
+                      <div className="space-y-2 overflow-y-auto max-h-[500px] pr-2 custom-scrollbar">
                         {selectedProductName && selectedSubcategory ? productSizes.map((product) => (
                           <button
                             key={product._id}
                             onClick={() => handleAddProduct(product)}
-                            className="w-full text-left px-4 py-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-900"
+                            className="w-full text-left px-4 py-2.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-900"
                           >
                             <div className="flex justify-between items-center">
                               <span>{product.unitSize} {product.unit}</span>
